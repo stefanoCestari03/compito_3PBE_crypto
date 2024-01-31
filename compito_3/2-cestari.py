@@ -1,7 +1,6 @@
 # exercise 
 # import chiper modules:
-from Crypto.Cipher import DES3, AES
-from Crypto.Util.Padding import pad
+from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import scrypt
 from Crypto.Random import get_random_bytes
 
@@ -19,114 +18,94 @@ import os
 
 
 # class of exceptions
-class EncryptingError(Exception): 
-    '''Error, problems with encryption'''
-class DecryptingError(Exception): 
-    '''Error, problems with decription'''
-class AutenticationError(Exception):
-    '''Error, Autentication file failed! '''
-class ReadingFileError(Exception):
-    '''Error, during read of the file'''
-class WritingFileError(Exception):
-    '''Error, during read of the file'''
-class KeyGenerationError(Exception):
-    '''Error during generation of the key'''
-class KeySavingError(Exception):
-    '''Error during saving proces of the key'''
+class SymEncError(Exception):
+    '''Error executing Symmetric Encryption script'''
+class ValidationError(SymEncError):
+    '''invalid input'''
+class KeyDerivationError(SymEncError):
+    '''Key derivation error'''
 
-# unpadding text
-
-def unpad(data):
-    length = 8 * ((len(data) + 7) // 8)
-    return data[:length]
-
-# key generating 
-def unpad(data):
-    length = 16 * ((len(data) + 15) // 16)
-    return data[:length]
-
-def generate_key(password,salt):
-    try:
-        #faccio funzione di hash per prendere un valore dalla password
-        key = scrypt(password, salt, 16, N=2**14, r=8, p=1)
-    except KeyGenerationError as err:
-        print(err)
+def generate_key_byKDF(password,salt):
+    # script function to derivate a key from a password/passphrase
+    key = scrypt(password, salt, 16, N=2**14, r=8, p=1)
     return key
 
+# initializating vector
 def generate_iv():
     return get_random_bytes(16)
 
 def encrypt_file(in_file, out_file, password, iv):
-    salt = get_random_bytes(16)
-    key = generate_key(password,salt)
+    try:
+        salt = get_random_bytes(16)
+        key = generate_key_byKDF(password,salt)
+    except:
+        raise KeyDerivationError
     try:
         
         cipher = AES.new(key, AES.MODE_GCM, iv)
         try:
             with open(in_file, 'rb') as file:
                 plain_text = file.read()
-        except ReadingFileError as err:
-            err += " in encrypting situation"
-            print(err)
+        except IOError as err:
+            err_str = 'Error: Cannot read file "'
+            err_str += path + '": ' + str(err)
+            print(err_str)
         cipher_text, auth_tag = cipher.encrypt_and_digest(plain_text)
         
-        try:
-            cipher_text += auth_tag
-            # adding salt at the end of the cipher txt file
-            cipher_text += salt 
-        except AutenticationError as err:
-            print(err)
+       
+        cipher_text += auth_tag
+        # adding salt at the end of the cipher txt file
+        cipher_text += salt 
         try:
             # text files tests
             # with open(out_file + '.enc', 'wb') as file:
             # immage test use extension of the file jpg
             with open(out_file , 'wb') as file:
                 file.write(iv + cipher_text)
-        except WritingFileError as err:
-            err += " in encrypting situation"
-            print(err)
-    except EncryptingError as err:
-        print(err)
+        except IOError as err:
+            err_str = 'Error: Cannot write file "'
+            err_str += path + '": ' + str(err)
+            print(err_str)
+    except:
+        raise ValidationError("An error occurred while trying to encrypt the file")
 
 def decrypt_file(in_file, out_file, password):
     try:
-        try:
-            with open(in_file, 'rb') as file:
-                iv = file.read(16)
-                text_to_decrypt = file.read()
-            # removing salt from the file
-            try:
-                # extracting the salt from the end of the file
-                salt =  text_to_decrypt[-16:]
-                # removing salt from the encrypted data creating a new substring
-                text_to_decrypt = text_to_decrypt[:-16]
-                # using salt and password to generate the same key  that was used for encryption
-                key = generate_key(password,salt)
-            except KeyGenerationError as err:
-                print(err)
-            cipher = AES.new(key, AES.MODE_GCM, iv)
-        except ReadingFileError as err:
-            err += " in decrypting situation"
-            print(err)
-        # extracting out tag from the end of the file
-        auth_tag = text_to_decrypt[-16:]
+        with open(in_file, 'rb') as file:
+            iv = file.read(16)
+            text_to_decrypt = file.read()
+    except IOError as err:
+        err_str = 'Error: Cannot read file "'
+        err_str += path + '": ' + str(err)
+        print(err_str)
+    # removing salt from the file
+    try:
+        # extracting the salt from the end of the file
+        salt =  text_to_decrypt[-16:]
+        # removing salt from the encrypted data creating a new substring
         text_to_decrypt = text_to_decrypt[:-16]
+        # using salt and password to generate the same key  that was used for encryption
+        key = generate_key_byKDF(password,salt)
+    except:
+        raise KeyDerivationError
+    cipher = AES.new(key, AES.MODE_GCM, iv)
+    # extracting out tag from the end of the file
+    auth_tag = text_to_decrypt[-16:]
+    text_to_decrypt = text_to_decrypt[:-16]
+    try:
         cipher_text = cipher.decrypt_and_verify(text_to_decrypt, auth_tag)
-        plain_text = unpad(cipher_text)
-        try:
-                # text tests
-                # with open(out_file + '.dec', 'wb') as file:
-                # immage test use extension of the file jpg
-                try:
-                    with open(out_file , 'wb') as file:
-                        file.write(plain_text)
-                except WritingFileError as err:
-                    err += " in writing decrypted file situation"
-                    print(err)
-        except DecryptingError as err:
-            print(err)
-    except AutenticationError as err:
-        print(err)
+    except:
+        raise ValidationError("wrong password")
+    plain_text = cipher_text
+    try: 
+        with open(out_file , 'wb') as file:
+            file.write(plain_text)
+    except IOError as err:
+        err_str = 'Error: Cannot write file "'
+        err_str += path + '": ' + str(err)
+        print(err_str)
+      
+    
 # main
 
 # terminal main
